@@ -1,208 +1,144 @@
-/**
- * 毛絨小熊手作屋 — 主要互動腳本 (js/main.js)
- * ==========================================================================
- * 【新手必改設定】
- * 請在部署好 Google Apps Script 後，將下方引號內的網址換成您的「網頁應用程式網址」。
- */
-const GAS_WEB_APP_URL = "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL";
+// Bears & Soft Toys - js/main.js
+// 1) 換成你自己的設定：GTM ID 喺 3 個 HTML 嘅 <head> 同 <body> 換，唔喺呢度。
+// 2) Google Sheets：喺下面換 GOOGLE_SHEETS_WEB_APP_URL，見 README / Code.gs
+const CONFIG = {
+  GOOGLE_SHEETS_WEB_APP_URL: "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec", // ← 貼上 Apps Script 部署後嘅 Web App URL
+  WHATSAPP_NUMBER: "85265424487",
+  WHATSAPP_LINK: "https://wa.me/85265424487"
+};
+
+function pushEvent(eventName, params) {
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push(Object.assign({ event: eventName }, params || {}));
+  // 喺 GTM 入面用呢啲 event 名做 Trigger：whatsapp_click / email_submit / product_click / form_view
+  console.log("[GTM dataLayer]", eventName, params || {});
+}
 
 document.addEventListener("DOMContentLoaded", () => {
-  initMobileNav();
-  initHeroCarousel();
-  initProductFilters();
-  initNewsletterForm();
-  initWhatsAppTracking();
-});
+  const yearEl = document.getElementById("year");
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
 
-/* 1. 手機版漢堡選單 */
-function initMobileNav() {
-  const toggleBtn = document.querySelector(".nav-toggle");
-  const navLinks = document.querySelector(".nav-links");
-  if (!toggleBtn || !navLinks) return;
+  // 手機選單
+  const toggle = document.getElementById("navToggle");
+  const nav = document.getElementById("mainNav");
+  if (toggle && nav) {
+    toggle.addEventListener("click", () => {
+      const open = nav.classList.toggle("open");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
 
-  toggleBtn.addEventListener("click", () => {
-    const isOpen = navLinks.classList.toggle("is-open");
-    toggleBtn.setAttribute("aria-expanded", String(isOpen));
-  });
-}
-
-/* 2. 首頁圖片輪播 Carousel */
-function initHeroCarousel() {
+  // 輪播 Carousel
   const carousel = document.querySelector("[data-carousel]");
-  if (!carousel) return;
-
-  const slides = Array.from(carousel.querySelectorAll(".carousel-slide"));
-  const dots = Array.from(carousel.querySelectorAll(".carousel-dot"));
-  const prevBtn = carousel.querySelector(".carousel-btn.prev");
-  const nextBtn = carousel.querySelector(".carousel-btn.next");
-
-  if (slides.length === 0) return;
-
-  let currentIndex = 0;
-  let autoTimer = null;
-
-  function showSlide(index) {
-    currentIndex = (index + slides.length) % slides.length;
-    slides.forEach((slide, idx) => {
-      const active = idx === currentIndex;
-      slide.classList.toggle("is-active", active);
-      slide.setAttribute("aria-hidden", String(!active));
+  if (carousel) {
+    const track = carousel.querySelector("[data-carousel-track]");
+    const slides = Array.from(track.children);
+    const prev = carousel.querySelector("[data-carousel-prev]");
+    const next = carousel.querySelector("[data-carousel-next]");
+    const dotsWrap = carousel.querySelector("[data-carousel-dots]");
+    let index = 0, timer = null;
+    slides.forEach((_, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-label", "去第 " + (i + 1) + " 張");
+      b.addEventListener("click", () => go(i, true));
+      dotsWrap.appendChild(b);
     });
-    dots.forEach((dot, idx) => {
-      const active = idx === currentIndex;
-      dot.classList.toggle("is-active", active);
-      dot.setAttribute("aria-current", active ? "true" : "false");
-    });
-  }
-
-  function startAutoPlay() {
-    stopAutoPlay();
-    autoTimer = setInterval(() => showSlide(currentIndex + 1), 5000);
-  }
-
-  function stopAutoPlay() {
-    if (autoTimer) {
-      clearInterval(autoTimer);
-      autoTimer = null;
+    const dots = Array.from(dotsWrap.children);
+    function go(i, manual) {
+      index = (i + slides.length) % slides.length;
+      track.style.transform = "translateX(-" + index * 100 + "%)";
+      dots.forEach((d, di) => d.setAttribute("aria-selected", di === index ? "true" : "false"));
+      slides.forEach((s, si) => s.setAttribute("aria-hidden", si === index ? "false" : "true"));
+      if (manual) restart();
     }
+    function restart() { clearInterval(timer); timer = setInterval(() => go(index + 1), 5000); }
+    if (prev) prev.addEventListener("click", () => go(index - 1, true));
+    if (next) next.addEventListener("click", () => go(index + 1, true));
+    go(0); restart();
   }
 
-  if (prevBtn) {
-    prevBtn.addEventListener("click", () => {
-      showSlide(currentIndex - 1);
-      startAutoPlay();
-    });
-  }
-
-  if (nextBtn) {
-    nextBtn.addEventListener("click", () => {
-      showSlide(currentIndex + 1);
-      startAutoPlay();
-    });
-  }
-
-  dots.forEach((dot, idx) => {
-    dot.addEventListener("click", () => {
-      showSlide(idx);
-      startAutoPlay();
-    });
-  });
-
-  carousel.addEventListener("mouseenter", stopAutoPlay);
-  carousel.addEventListener("mouseleave", startAutoPlay);
-
-  showSlide(0);
-  startAutoPlay();
-}
-
-/* 3. 產品頁分類篩選 */
-function initProductFilters() {
-  const filterBtns = document.querySelectorAll(".filter-btn");
-  const cards = document.querySelectorAll(".product-card");
-  if (filterBtns.length === 0 || cards.length === 0) return;
-
-  filterBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const category = btn.getAttribute("data-filter");
-
-      filterBtns.forEach((b) => b.classList.remove("is-active"));
-      btn.classList.add("is-active");
-
-      cards.forEach((card) => {
-        const cardCat = card.getAttribute("data-category");
-        const shouldShow = category === "all" || cardCat === category;
-        card.classList.toggle("is-hidden", !shouldShow);
-      });
-
-      // 推送分類點擊事件至 GTM dataLayer（方便日後在 GA4 / FB Pixel 追蹤）
-      window.dataLayer = window.dataLayer || [];
-      window.dataLayer.push({
-        event: "product_filter_click",
-        filter_category: category
+  // 產品篩選（products.html）
+  const filterBtns = document.querySelectorAll("[data-filter]");
+  const cards = document.querySelectorAll("[data-category]");
+  if (filterBtns.length && cards.length) {
+    filterBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        filterBtns.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const f = btn.getAttribute("data-filter");
+        cards.forEach(c => {
+          const show = f === "all" || c.getAttribute("data-category") === f;
+          c.style.display = show ? "" : "none";
+        });
+        pushEvent("product_filter", { filter: f });
       });
     });
+  }
+
+  // 產品點擊追蹤
+  document.querySelectorAll("[data-product]").forEach(el => {
+    el.addEventListener("click", () => pushEvent("product_click", { product_name: el.getAttribute("data-product") }));
   });
-}
 
-/* 4. 電郵訂閱／新品通知表單（連接 Google Apps Script -> _demo/Contact） */
-function initNewsletterForm() {
-  const forms = document.querySelectorAll(".newsletter-form");
-  if (forms.length === 0) return;
+  // WhatsApp 點擊追蹤 → GTM 事件 whatsapp_click
+  document.querySelectorAll('[data-event="whatsapp_click"]').forEach(el => {
+    el.addEventListener("click", () => pushEvent("whatsapp_click", { whatsapp_number: CONFIG.WHATSAPP_NUMBER, link_url: el.href, page: location.pathname }));
+  });
 
-  forms.forEach((form) => {
+  // 電郵表格 → Google Sheets (_demo / Contact)
+  const form = document.getElementById("email-form");
+  if (form) {
+    // 俾 GTM 知有人睇到表格
+    pushEvent("form_view", { form_id: "email-form" });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const emailInput = form.querySelector('input[type="email"]');
-      const statusEl = form.parentElement.querySelector(".form-status");
-      const submitBtn = form.querySelector('button[type="submit"]');
-      const email = emailInput ? emailInput.value.trim() : "";
-
-      if (!email || !email.includes("@")) {
-        setStatus(statusEl, "請輸入有效的電郵地址。", "error");
+      const nameInput = document.getElementById("customer-name");
+      const emailInput = document.getElementById("customer-email");
+      const msg = document.getElementById("form-message");
+      const btn = document.getElementById("email-submit-btn");
+      const name = (nameInput ? nameInput.value.trim() : "");
+      const email = (emailInput ? emailInput.value.trim() : "");
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        msg.textContent = "請輸入正確嘅電郵地址，例如 you@example.com";
+        msg.className = "form-note error";
+        emailInput.focus();
         return;
       }
+      btn.disabled = true; btn.textContent = "提交緊…";
+      msg.textContent = ""; msg.className = "form-note";
 
-      if (GAS_WEB_APP_URL === "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL") {
-        setStatus(
-          statusEl,
-          "示範模式：尚未填入 Google Apps Script 網址。請依指南完成 GAS 部署後更新 js/main.js。",
-          "error"
-        );
-        return;
-      }
+      // 1) GTM 事件：email_submit（之後喺 GTM 入面用呢個 event 觸發 GA4 / Facebook Pixel / Google Ads）
+      pushEvent("email_submit", { email_domain: email.split("@")[1] || "", page: location.pathname, source: "new_product_signup" });
 
-      submitBtn.disabled = true;
-      submitBtn.textContent = "傳送中...";
-      setStatus(statusEl, "", "");
-
+      // 2) 寫入 Google Sheets
       try {
-        await fetch(GAS_WEB_APP_URL, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            email: email,
-            page: document.title || window.location.pathname
-          })
-        });
-
-        setStatus(statusEl, "感謝您的登記！新品推出時我們會第一時間以電郵通知您。", "success");
+        if (!CONFIG.GOOGLE_SHEETS_WEB_APP_URL || CONFIG.GOOGLE_SHEETS_WEB_APP_URL.includes("YOUR_SCRIPT_ID")) {
+          throw new Error("NOT_CONFIGURED");
+        }
+        const payload = new URLSearchParams();
+        payload.append("name", name);
+        payload.append("email", email);
+        payload.append("source", "Bears & Soft Toys - 新產品訂閱");
+        payload.append("page", location.href);
+        payload.append("timestamp", new Date().toISOString());
+        // 用 no-cors 因為 Apps Script 唔回 CORS header，提交會成功但讀唔到回應，屬正常
+        await fetch(CONFIG.GOOGLE_SHEETS_WEB_APP_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: payload.toString() });
+        msg.textContent = "多謝你！已收到你嘅電郵，有新產品會第一時間通知你。";
+        msg.className = "form-note success";
         form.reset();
-
-        // 推送轉換事件至 GTM dataLayer（供 Google Ads / GA4 / FB Pixel 使用）
-        window.dataLayer = window.dataLayer || [];
-        window.dataLayer.push({
-          event: "email_subscribe",
-          page_title: document.title
-        });
       } catch (err) {
-        setStatus(statusEl, "傳送時發生錯誤，請稍後再試。", "error");
+        if (err && err.message === "NOT_CONFIGURED") {
+          msg.textContent = "表格已記錄（示範模式）：請先喺 js/main.js 貼上 Apps Script Web App URL，之後就會自動寫入 Google Sheets _demo / Contact。";
+          msg.className = "form-note success";
+          console.warn("請設定 GOOGLE_SHEETS_WEB_APP_URL");
+        } else {
+          msg.textContent = "提交遇到問題，請稍後再試，或者用 WhatsApp 快速聯絡我哋。";
+          msg.className = "form-note error";
+        }
       } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = "訂閱新品通知";
+        btn.disabled = false; btn.textContent = "訂閱新產品消息";
       }
     });
-  });
-}
-
-function setStatus(el, msg, type) {
-  if (!el) return;
-  el.textContent = msg;
-  el.classList.remove("is-success", "is-error");
-  if (type === "success") el.classList.add("is-success");
-  if (type === "error") el.classList.add("is-error");
-}
-
-/* 5. WhatsApp 點擊事件追蹤（供 GTM 使用） */
-function initWhatsAppTracking() {
-  const waLinks = document.querySelectorAll('a[href*="wa.me/"]');
-  waLinks.forEach((link) => {
-    link.addEventListener("click", () => {
-      window.dataLayer = window.dataLayer || [];
-      window.dataLayer.push({
-        event: "whatsapp_click",
-        page_title: document.title
-      });
-    });
-  });
-}
+  }
+});
